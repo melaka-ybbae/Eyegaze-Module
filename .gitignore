@@ -1,0 +1,81 @@
+# Unity generated
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+[Uu]ser[Ss]ettings/
+
+# Memory captures
+MemoryCaptures/
+
+# Asset Bundles
+AssetBundles/
+*.unitypackage
+
+# Unity3D generated meta files
+*.pidb.meta
+*.pdb.meta
+*.mdb.meta
+
+# Unity3D generated file on crash reports
+sysinfo.txt
+
+# Builds
+*.apk
+*.aab
+*.unitypackage
+*.app
+
+# Crashlytics generated file
+crashlytics-build.properties
+
+# Visual Studio cache directory
+.vs/
+
+# JetBrains Rider
+.idea/
+*.sln.iml
+
+# Visual Studio Code
+.vscode/
+
+# OS generated
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Serena memories (local only)
+.serena/memories/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+*.egg-info/
+.eggs/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# ONNX weights (large files - download separately)
+# *.onnx
+
+# Calibration data (user-specific)
+calibration_data.json
+calibration_onnx.json
+
+# External repositories (clone separately)
+L2CS-Net-repo/
+
+# Debug output images
+cropped_face_*.png
+
+# Claude Code
+.claude/
