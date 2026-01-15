@@ -60,22 +60,12 @@ public class GazeEstimator : MonoBehaviour
         try
         {
             _runtimeModel = ModelLoader.Load(_modelAsset);
-            _worker = new Worker(_runtimeModel, BackendType.CPU);
-            Debug.Log("[GazeEstimator] CPU 백엔드 사용");
-            _isInitialized = true;
-            Debug.Log("[GazeEstimator] Sentis 초기화 완료");
 
-            // 모델 입출력 정보 상세 로깅
-            Debug.Log($"[GazeEstimator] 입력 개수: {_runtimeModel.inputs.Count}");
-            foreach (var input in _runtimeModel.inputs)
-            {
-                Debug.Log($"[GazeEstimator] 입력: {input.name}, shape: {input.shape}");
-            }
-            Debug.Log($"[GazeEstimator] 출력 개수: {_runtimeModel.outputs.Count}");
-            foreach (var output in _runtimeModel.outputs)
-            {
-                Debug.Log($"[GazeEstimator] 출력 레이어: {output.name}");
-            }
+            // GPU 사용 가능 시 GPU, 아니면 CPU 사용
+            BackendType backend = SystemInfo.supportsComputeShaders ? BackendType.GPUCompute : BackendType.CPU;
+            _worker = new Worker(_runtimeModel, backend);
+            _isInitialized = true;
+            Debug.Log($"[GazeEstimator] 초기화 완료 ({backend})");
         }
         catch (Exception e)
         {
@@ -109,40 +99,13 @@ public class GazeEstimator : MonoBehaviour
 
         try
         {
-            // 디버그: 입력 이미지 체크섬 (이미지가 변하는지 확인)
-            if (_frameCount % 30 == 1)
-            {
-                var pixels = faceImage.GetPixels32();
-                int checksum = 0;
-                for (int i = 0; i < Mathf.Min(pixels.Length, 1000); i += 10)
-                {
-                    checksum += pixels[i].r + pixels[i].g + pixels[i].b;
-                }
-                Debug.Log($"[GazeEstimator] 프레임 {_frameCount} 입력 체크섬: {checksum}, 크기: {faceImage.width}x{faceImage.height}");
-            }
-
-            // 전처리
             using var inputTensor = Preprocess(faceImage);
-
-            // 추론 실행
             _worker.Schedule(inputTensor);
-
-            // 출력 파싱
             result = ParseOutput();
-
-            // 디버그: 매 30프레임마다 raw 출력 로깅
-            if (_frameCount % 30 == 0 && result.IsValid)
-            {
-                Debug.Log($"[GazeEstimator] 프레임 {_frameCount}: Raw Pitch={result.Pitch:F4} rad ({result.PitchDeg:F1}°), Raw Yaw={result.Yaw:F4} rad ({result.YawDeg:F1}°)");
-            }
 
             if (result.IsValid)
             {
                 OnGazeEstimated?.Invoke(result);
-            }
-            else
-            {
-                Debug.LogWarning("[GazeEstimator] 시선 추정 결과가 유효하지 않습니다.");
             }
         }
         catch (Exception e)
@@ -173,9 +136,7 @@ public class GazeEstimator : MonoBehaviour
         {
             for (int x = 0; x < width; x++)
             {
-                // Unity GetPixels32는 Y=0이 하단이지만, 
-                // ProcessFrame에서 이미 상하 반전된 이미지를 사용하므로
-                // 여기서 다시 반전하여 표준 좌표계(Y=0 상단)로 만듦
+                // Y축 반전
                 int srcIdx = (height - 1 - y) * width + x;
                 var pixel = pixels[srcIdx];
 
@@ -189,32 +150,6 @@ public class GazeEstimator : MonoBehaviour
                 data[dstIdxG] = (pixel.g / 255f - mean[1]) / std[1];
                 data[dstIdxB] = (pixel.b / 255f - mean[2]) / std[2];
             }
-        }
-
-        // 디버그: 첫 프레임에서 입력 텐서 통계 로깅
-        if (!_outputFormatLogged)
-        {
-            // 중앙 픽셀 값 확인
-            int cx = width / 2;
-            int cy = height / 2;
-            int centerIdx = cy * width + cx;
-            Debug.Log($"[GazeEstimator] 입력 크기: {width}x{height}");
-            Debug.Log($"[GazeEstimator] 중앙 픽셀 (정규화 전): R={pixels[centerIdx].r}, G={pixels[centerIdx].g}, B={pixels[centerIdx].b}");
-            
-            // 텐서 값 범위 확인
-            float minR = float.MaxValue, maxR = float.MinValue;
-            float minG = float.MaxValue, maxG = float.MinValue;
-            float minB = float.MaxValue, maxB = float.MinValue;
-            for (int i = 0; i < width * height; i++)
-            {
-                minR = Mathf.Min(minR, data[i]);
-                maxR = Mathf.Max(maxR, data[i]);
-                minG = Mathf.Min(minG, data[width * height + i]);
-                maxG = Mathf.Max(maxG, data[width * height + i]);
-                minB = Mathf.Min(minB, data[2 * width * height + i]);
-                maxB = Mathf.Max(maxB, data[2 * width * height + i]);
-            }
-            Debug.Log($"[GazeEstimator] 텐서 범위: R=[{minR:F2}, {maxR:F2}], G=[{minG:F2}, {maxG:F2}], B=[{minB:F2}, {maxB:F2}]");
         }
 
         // Sentis Tensor: (batch, channels, height, width)
@@ -240,17 +175,9 @@ public class GazeEstimator : MonoBehaviour
 
                 if (pitchTensorRaw != null && yawTensorRaw != null)
                 {
-                    // CPU로 데이터 복사 (using으로 자동 해제)
                     using var pitchCpu = pitchTensorRaw.ReadbackAndClone();
                     using var yawCpu = yawTensorRaw.ReadbackAndClone();
-
-                    // 첫 프레임에서 출력 형식 로깅
-                    if (!_outputFormatLogged)
-                    {
-                        _outputFormatLogged = true;
-                        Debug.Log($"[GazeEstimator] 출력 형식 - pitch: shape={pitchCpu.shape}");
-                        Debug.Log($"[GazeEstimator] 출력 형식 - yaw: shape={yawCpu.shape}");
-                    }
+                    _outputFormatLogged = true;
 
                     float pitch, yaw;
                     int pitchLength = pitchCpu.shape.length;
@@ -286,7 +213,6 @@ public class GazeEstimator : MonoBehaviour
                     }
                     else
                     {
-                        Debug.LogWarning($"[GazeEstimator] 예상치 못한 출력 크기: pitch={pitchLength}");
                         return result;
                     }
 
@@ -304,29 +230,11 @@ public class GazeEstimator : MonoBehaviour
                 var singleOutputRaw = _worker.PeekOutput() as Tensor<float>;
 
                 if (singleOutputRaw == null)
-                {
-                    Debug.LogWarning("[GazeEstimator] 출력 텐서가 null입니다.");
                     return result;
-                }
 
-                // CPU로 데이터 복사 (using으로 자동 해제)
                 using var singleOutput = singleOutputRaw.ReadbackAndClone();
                 int outputLength = singleOutput.shape.length;
-
-                // 첫 프레임에서 출력 형식 로깅
-                if (!_outputFormatLogged)
-                {
-                    _outputFormatLogged = true;
-                    Debug.Log($"[GazeEstimator] 단일 출력 형식: shape={singleOutput.shape}, length={outputLength}");
-                    
-                    // 첫 몇 개 값 로깅 (디버그용)
-                    string values = "";
-                    for (int i = 0; i < Mathf.Min(outputLength, 10); i++)
-                    {
-                        values += $"{singleOutput[i]:F4}, ";
-                    }
-                    Debug.Log($"[GazeEstimator] 출력 값 (처음 10개): [{values}]");
-                }
+                _outputFormatLogged = true;
 
                 // 출력이 2개 값 (pitch, yaw)인 경우 - 라디안 출력
                 if (outputLength == 2)

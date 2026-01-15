@@ -27,6 +27,8 @@ public class SimpleCalibrationUI : MonoBehaviour
     private Button _startButton;
     private Button _resetButton;
     private Button _cancelButton;
+    private Button _saveButton;
+    private Button _loadButton;
 
     private void Start()
     {
@@ -140,7 +142,7 @@ public class SimpleCalibrationUI : MonoBehaviour
 
     private void CreateButtons()
     {
-        // 버튼 컨테이너
+        // 버튼 컨테이너 (상단 행)
         var buttonContainer = new GameObject("ButtonContainer");
         buttonContainer.transform.SetParent(_canvas.transform, false);
         var containerRect = buttonContainer.AddComponent<RectTransform>();
@@ -159,6 +161,22 @@ public class SimpleCalibrationUI : MonoBehaviour
         // 취소 버튼 (캘리브레이션 중에만 활성화)
         _cancelButton = CreateButton(buttonContainer.transform, "CancelButton", "취소", new Vector2(150, 0), OnCancelButtonClick, new Color(0.9f, 0.3f, 0.3f));
         _cancelButton.gameObject.SetActive(false);
+
+        // 버튼 컨테이너 (하단 행 - 저장/불러오기)
+        var saveLoadContainer = new GameObject("SaveLoadContainer");
+        saveLoadContainer.transform.SetParent(_canvas.transform, false);
+        var saveLoadRect = saveLoadContainer.AddComponent<RectTransform>();
+        saveLoadRect.anchorMin = new Vector2(0.5f, 0);
+        saveLoadRect.anchorMax = new Vector2(0.5f, 0);
+        saveLoadRect.pivot = new Vector2(0.5f, 0);
+        saveLoadRect.anchoredPosition = new Vector2(0, 230);
+        saveLoadRect.sizeDelta = new Vector2(300, 50);
+
+        // 저장 버튼
+        _saveButton = CreateButton(saveLoadContainer.transform, "SaveButton", "저장", new Vector2(-75, 0), OnSaveButtonClick, new Color(0.6f, 0.4f, 0.8f));
+
+        // 불러오기 버튼
+        _loadButton = CreateButton(saveLoadContainer.transform, "LoadButton", "불러오기", new Vector2(75, 0), OnLoadButtonClick, new Color(0.8f, 0.6f, 0.2f));
     }
 
     private Button CreateButton(Transform parent, string name, string label, Vector2 position, UnityEngine.Events.UnityAction onClick, Color buttonColor)
@@ -217,6 +235,77 @@ public class SimpleCalibrationUI : MonoBehaviour
     private void OnCancelButtonClick()
     {
         CancelCalibration();
+    }
+
+    private void OnSaveButtonClick()
+    {
+        var tracker = L2CSGazeTracker.Instance;
+        if (tracker == null)
+        {
+            UpdateInstructions("트래커가 초기화되지 않았습니다");
+            return;
+        }
+
+        // 1. 간단 캘리브레이션 저장
+        if (tracker.HasCalibrated)
+        {
+            tracker.SaveCalibration();
+        }
+
+        // 2. 9점 캘리브레이션(GazeToScreen) 저장
+        var gazeToScreen = tracker.GazeToScreenComponent;
+        if (gazeToScreen != null && gazeToScreen.IsCalibrated)
+        {
+            gazeToScreen.SaveCalibration();
+            UpdateInstructions("캘리브레이션 저장 완료!\n다음 실행 시 자동으로 불러옵니다");
+            _progressText.text = "";
+        }
+        else if (tracker.HasCalibrated)
+        {
+            UpdateInstructions("간단 캘리브레이션 저장 완료!");
+            _progressText.text = "";
+        }
+        else
+        {
+            UpdateInstructions("저장할 캘리브레이션이 없습니다\n먼저 캘리브레이션을 진행하세요");
+            _progressText.text = "";
+        }
+    }
+
+    private void OnLoadButtonClick()
+    {
+        var tracker = L2CSGazeTracker.Instance;
+        if (tracker == null)
+        {
+            UpdateInstructions("트래커가 초기화되지 않았습니다");
+            return;
+        }
+
+        bool loaded = false;
+
+        // 1. 간단 캘리브레이션 불러오기
+        if (tracker.LoadCalibration())
+        {
+            loaded = true;
+        }
+
+        // 2. 9점 캘리브레이션(GazeToScreen) 불러오기
+        var gazeToScreen = tracker.GazeToScreenComponent;
+        if (gazeToScreen != null && gazeToScreen.LoadCalibration())
+        {
+            loaded = true;
+        }
+
+        if (loaded)
+        {
+            UpdateInstructions("캘리브레이션 불러오기 완료!");
+            _progressText.text = "";
+        }
+        else
+        {
+            UpdateInstructions("저장된 캘리브레이션이 없습니다");
+            _progressText.text = "";
+        }
     }
 
     private void StartCalibration()

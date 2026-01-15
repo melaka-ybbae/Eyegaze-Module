@@ -58,7 +58,6 @@ public class FaceDetector : MonoBehaviour
         if (_isInitializing) yield break;
         _isInitializing = true;
 
-        Debug.Log("[FaceDetector] MediaPipe 초기화 시작...");
 
         // 모델 파일이 StreamingAssets에 있는지 확인
         string modelFullPath = System.IO.Path.Combine(Application.streamingAssetsPath, _modelPath);
@@ -83,12 +82,11 @@ public class FaceDetector : MonoBehaviour
 
             _detector = Mediapipe.Tasks.Vision.FaceDetector.FaceDetector.CreateFromOptions(options);
             _isInitialized = true;
-            Debug.Log("[FaceDetector] MediaPipe 초기화 완료");
+            Debug.Log("[FaceDetector] 초기화 완료");
         }
         catch (Exception e)
         {
-            Debug.LogError($"[FaceDetector] 초기화 실패: {e.Message}\n{e.StackTrace}");
-            Debug.LogWarning("[FaceDetector] 모델 파일이 StreamingAssets 폴더에 있는지 확인하세요: " + _modelPath);
+            Debug.LogError($"[FaceDetector] 초기화 실패: {e.Message}");
             _isInitialized = false;
         }
 
@@ -247,7 +245,7 @@ public class FaceDetector : MonoBehaviour
     }
 
     /// <summary>
-    /// 얼굴 영역 크롭
+    /// 얼굴 영역 크롭 - 파이썬과 동일한 단순 바운딩 박스 방식
     /// </summary>
     public Texture2D CropFace(Texture2D source, FaceDetectionResult detection, int outputSize = 448)
     {
@@ -257,58 +255,35 @@ public class FaceDetector : MonoBehaviour
         }
 
         // 바운딩 박스를 픽셀 좌표로 변환
-        // MediaPipe: Y=0이 상단 (표준 이미지 좌표계)
-        // Unity Texture2D: Y=0이 하단 → 변환 필요
         var box = detection.BoundingBox;
         int x = Mathf.FloorToInt(box.x * source.width);
+        int y = Mathf.FloorToInt(box.y * source.height);
         int w = Mathf.FloorToInt(box.width * source.width);
         int h = Mathf.FloorToInt(box.height * source.height);
-        
-        // MediaPipe Y좌표를 Unity Y좌표로 변환
-        // MediaPipe에서 box.y는 상단에서의 거리, box.y + box.height는 하단
-        // Unity에서는 Y=0이 하단이므로:
-        // Unity Y = source.height - (MediaPipe Y + MediaPipe Height)
-        int y = source.height - Mathf.FloorToInt((box.y + box.height) * source.height);
-
-        // 마진 추가 (얼굴 주변 컨텍스트 포함)
-        int margin = Mathf.RoundToInt(Mathf.Max(w, h) * 0.2f);
-        x -= margin;
-        y -= margin;
-        w += margin * 2;
-        h += margin * 2;
-
-        // 정사각형으로 확장 (L2CS-Net 입력용)
-        int size = Mathf.Max(w, h);
-        int centerX = x + w / 2;
-        int centerY = y + h / 2;
-        x = centerX - size / 2;
-        y = centerY - size / 2;
 
         // 경계 체크
         x = Mathf.Clamp(x, 0, source.width - 1);
         y = Mathf.Clamp(y, 0, source.height - 1);
-        size = Mathf.Min(size, Mathf.Min(source.width - x, source.height - y));
+        w = Mathf.Min(w, source.width - x);
+        h = Mathf.Min(h, source.height - y);
 
-        if (size <= 0)
+        if (w <= 10 || h <= 10)
         {
             return null;
         }
 
+
         // 크롭
-        var pixels = source.GetPixels(x, y, size, size);
-        var cropped = new Texture2D(size, size, TextureFormat.RGBA32, false);
+        var pixels = source.GetPixels(x, y, w, h);
+        var cropped = new Texture2D(w, h, TextureFormat.RGBA32, false);
         cropped.SetPixels(pixels);
         cropped.Apply();
 
-        // 리사이즈
-        if (size != outputSize)
-        {
-            var resized = ResizeTexture(cropped, outputSize, outputSize);
-            Destroy(cropped);
-            return resized;
-        }
+        // outputSize로 리사이즈
+        var resized = ResizeTexture(cropped, outputSize, outputSize);
+        Destroy(cropped);
 
-        return cropped;
+        return resized;
     }
 
     /// <summary>

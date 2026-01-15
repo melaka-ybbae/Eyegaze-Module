@@ -72,10 +72,10 @@ public class GazeToScreen : MonoBehaviour
         else
         {
             // 캘리브레이션 전: 기본 선형 매핑 (대략적)
-            // pitch: 위(-) / 아래(+) → Y 좌표
-            // yaw: 왼쪽(-) / 오른쪽(+) → X 좌표
-            float normalizedX = 0.5f - yaw / Mathf.PI;  // 대략 -0.5π ~ 0.5π 범위
-            float normalizedY = 0.5f + pitch / (Mathf.PI / 2f);  // 대략 -0.25π ~ 0.25π 범위
+            // pitch: 위를 보면 양수 → normalizedY 증가 → Unity UI에서 화면 위로
+            // yaw: 오른쪽을 보면 양수 → 화면 X 증가 (오른쪽으로)
+            float normalizedX = 0.5f + yaw / Mathf.PI;
+            float normalizedY = 0.5f + pitch / (Mathf.PI / 2f);
 
             screenPoint = new Vector2(
                 normalizedX * _screenWidth,
@@ -161,13 +161,14 @@ public class GazeToScreen : MonoBehaviour
 
     /// <summary>
     /// 현재 캘리브레이션 타겟 위치 (픽셀)
+    /// Unity UI 좌표계와 일치시키기 위해 Y축 반전 적용
     /// </summary>
     public Vector2 GetCurrentCalibrationTargetPixels()
     {
         Vector2 normalized = GetCurrentCalibrationTarget();
         return new Vector2(
             normalized.x * _screenWidth,
-            normalized.y * _screenHeight
+            (1f - normalized.y) * _screenHeight  // Y축 반전: UI 좌표계와 일치
         );
     }
 

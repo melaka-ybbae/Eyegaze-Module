@@ -111,6 +111,12 @@ public class L2CSGazeTracker : MonoBehaviour
         _gazeFilter = new GazeFilter(_filterMinCutoff, _filterBeta);
         _movingAvgFilter = new MovingAverageFilter(_movingAverageWindow);
 
+        // 저장된 캘리브레이션 자동 불러오기
+        if (HasSavedCalibration())
+        {
+            LoadCalibration();
+        }
+
         yield return StartCoroutine(Initialize());
     }
 
@@ -177,8 +183,6 @@ public class L2CSGazeTracker : MonoBehaviour
     /// </summary>
     private IEnumerator Initialize()
     {
-        Debug.Log("[L2CSGazeTracker] 초기화 시작...");
-
         // Android 권한 요청
 #if UNITY_ANDROID && !UNITY_EDITOR
         if (!UnityEngine.Android.Permission.HasUserAuthorizedPermission(UnityEngine.Android.Permission.Camera))
@@ -214,7 +218,6 @@ public class L2CSGazeTracker : MonoBehaviour
         WebCamDevice? selectedDevice = null;
         foreach (var cam in WebCamTexture.devices)
         {
-            Debug.Log($"[L2CSGazeTracker] 카메라: {cam.name} (Front: {cam.isFrontFacing})");
             if (cam.isFrontFacing)
             {
                 selectedDevice = cam;
@@ -229,7 +232,6 @@ public class L2CSGazeTracker : MonoBehaviour
 
         var device = selectedDevice.Value;
         _isFrontFacing = device.isFrontFacing;
-        Debug.Log($"[L2CSGazeTracker] 선택된 카메라: {device.name} (전면: {_isFrontFacing})");
 
         try
         {
@@ -258,8 +260,6 @@ public class L2CSGazeTracker : MonoBehaviour
             yield break;
         }
 
-        Debug.Log($"[L2CSGazeTracker] 카메라 해상도: {_webCamTexture.width}x{_webCamTexture.height}");
-
         // 프리뷰 설정
         if (_cameraPreview != null)
         {
@@ -269,17 +269,6 @@ public class L2CSGazeTracker : MonoBehaviour
         // 텍스처 준비
         _frameTexture = new Texture2D(_webCamTexture.width, _webCamTexture.height, TextureFormat.RGBA32, false);
         _pixelBuffer = new Color32[_webCamTexture.width * _webCamTexture.height];
-
-        // 컴포넌트 초기화 확인
-        if (_faceDetector != null && !_faceDetector.IsInitialized)
-        {
-            Debug.LogWarning("[L2CSGazeTracker] FaceDetector 모델이 로드되지 않았습니다. Inspector에서 ONNX 모델을 할당하세요.");
-        }
-
-        if (_gazeEstimator != null && !_gazeEstimator.IsInitialized)
-        {
-            Debug.LogWarning("[L2CSGazeTracker] GazeEstimator 모델이 로드되지 않았습니다. Inspector에서 ONNX 모델을 할당하세요.");
-        }
 
         _isInitialized = true;
         Debug.Log("[L2CSGazeTracker] 초기화 완료");
@@ -388,7 +377,9 @@ public class L2CSGazeTracker : MonoBehaviour
         }
 
         // Raw 모델 출력 저장 (디버그용)
-        _rawModelPitch = gazeResult.PitchDeg;
+        // 주의: GazeEstimator에서 Y축 반전으로 인해 pitch가 반전되어 출력됨
+        // 따라서 여기서 pitch 부호를 다시 반전시켜 정상화
+        _rawModelPitch = -gazeResult.PitchDeg;  // pitch 부호 반전 (Y축 반전 보정)
         _rawModelYaw = gazeResult.YawDeg;
 
         // 자동 캘리브레이션 (처음 30프레임 평균을 정면 기준으로 설정)
@@ -403,7 +394,6 @@ public class L2CSGazeTracker : MonoBehaviour
                 _pitchOffset = _calibrationPitchSum / CALIBRATION_FRAMES;
                 _yawOffset = _calibrationYawSum / CALIBRATION_FRAMES;
                 _hasCalibrated = true;
-                Debug.Log($"[L2CSGazeTracker] 자동 캘리브레이션 완료 - Offset: Pitch={_pitchOffset:F1}, Yaw={_yawOffset:F1}");
             }
         }
 
@@ -591,7 +581,6 @@ public class L2CSGazeTracker : MonoBehaviour
     {
         _gazeToScreen?.StartCalibration();
         _gazeFilter?.Reset();
-        Debug.Log("[L2CSGazeTracker] 캘리브레이션 시작");
     }
 
     /// <summary>
@@ -600,7 +589,6 @@ public class L2CSGazeTracker : MonoBehaviour
     public void CancelCalibration()
     {
         _gazeToScreen?.CancelCalibration();
-        Debug.Log("[L2CSGazeTracker] 캘리브레이션 취소");
     }
 
     /// <summary>
@@ -654,8 +642,6 @@ public class L2CSGazeTracker : MonoBehaviour
         _calibrationYawSum = 0f;
         _pitchOffset = 0f;
         _yawOffset = 0f;
-
-        Debug.Log("[L2CSGazeTracker] 자동 캘리브레이션 리셋");
     }
 
     /// <summary>
@@ -664,6 +650,60 @@ public class L2CSGazeTracker : MonoBehaviour
     public void ResetFilter()
     {
         _gazeFilter?.Reset();
+    }
+
+    /// <summary>
+    /// 빠른 캘리브레이션 (현재 시선을 지정된 화면 위치로 매핑)
+    /// </summary>
+    /// <param name="targetScreenPosition">목표 화면 위치 (정규화 0~1, 예: 0.5, 0.5 = 중앙)</param>
+    public void QuickCalibrate(Vector2 targetScreenPosition)
+    {
+        if (!_isTracking || !_hasCalibrated)
+            return;
+
+        _pitchOffset = _rawModelPitch;
+        _yawOffset = _rawModelYaw;
+        _gazeFilter?.Reset();
+        _movingAvgFilter?.Reset();
+    }
+
+    /// <summary>
+    /// 캘리브레이션 저장
+    /// </summary>
+    public void SaveCalibration()
+    {
+        if (!_hasCalibrated)
+            return;
+
+        PlayerPrefs.SetFloat("GazeCalibration_PitchOffset", _pitchOffset);
+        PlayerPrefs.SetFloat("GazeCalibration_YawOffset", _yawOffset);
+        PlayerPrefs.SetInt("GazeCalibration_Saved", 1);
+        PlayerPrefs.Save();
+    }
+
+    /// <summary>
+    /// 캘리브레이션 불러오기
+    /// </summary>
+    public bool LoadCalibration()
+    {
+        if (PlayerPrefs.GetInt("GazeCalibration_Saved", 0) == 0)
+            return false;
+
+        _pitchOffset = PlayerPrefs.GetFloat("GazeCalibration_PitchOffset", 0f);
+        _yawOffset = PlayerPrefs.GetFloat("GazeCalibration_YawOffset", 0f);
+        _hasCalibrated = true;
+
+        _gazeFilter?.Reset();
+        _movingAvgFilter?.Reset();
+        return true;
+    }
+
+    /// <summary>
+    /// 저장된 캘리브레이션이 있는지 확인
+    /// </summary>
+    public bool HasSavedCalibration()
+    {
+        return PlayerPrefs.GetInt("GazeCalibration_Saved", 0) == 1;
     }
 
     /// <summary>
