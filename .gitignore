@@ -38,6 +38,10 @@ crashlytics-build.properties
 .idea/
 *.sln.iml
 
+# Auto-generated project files
+*.csproj
+*.sln
+
 # Visual Studio Code
 .vscode/
 
@@ -73,6 +77,9 @@ calibration_onnx.json
 
 # External repositories (clone separately)
 L2CS-Net-repo/
+
+# External packages (managed via manifest.json)
+Packages/com.github.homuler.mediapipe/
 
 # Debug output images
 cropped_face_*.png
